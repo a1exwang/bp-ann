@@ -20,7 +20,7 @@ public:
     lastLayer = last;
     if (lastLayer) {
       lastLayer->nextLayer = this;
-      this->InputWidth = lastLayer->InputWidth;
+      this->InputWidth = lastLayer->OutputWidth;
     }
     else if (InputWidth < 0) {
       throw std::invalid_argument("input width error");
@@ -53,7 +53,6 @@ protected:
   double *lastInput;
   double *lastOutput;
 };
-
 
 class InputLayer :public Layer {
 public:
@@ -236,12 +235,15 @@ int realFunction(double *input, int inputCount, double *output, int outputCount)
 std::vector<Layer*> initializeNetwork() {
 
   MappingInputLayer *inputLayer = new MappingInputLayer(InputWidth, {
-      [](const double *input, int w) -> double { return input[0] * input[0]; },
-      [](const double *input, int w) -> double { return input[1] * input[1]; }
+      [](const double *input, int w) -> double { return sin(input[0]); },
+      [](const double *input, int w) -> double { return sin(input[1]); },
+//      [](const double *input, int w) -> double { return input[0] * input[0]; },
+//      [](const double *input, int w) -> double { return input[0] * input[1]; },
+//      [](const double *input, int w) -> double { return input[1] * input[1]; }
   });
-  FullyConnectedLayer *layer1 = new FullyConnectedLayer(3, inputLayer);
-  FullyConnectedLayer *layer2 = new FullyConnectedLayer(5, layer1);
-  OutputLayer *outputLayer = new OutputLayer(OutputWidth, layer2);
+  FullyConnectedLayer *layer1 = new FullyConnectedLayer(5, inputLayer);
+  FullyConnectedLayer *layer3 = new FullyConnectedLayer(5, layer1);
+  OutputLayer *outputLayer = new OutputLayer(OutputWidth, layer3);
 
   vector<Layer*> layers;
   Layer *last = inputLayer;
@@ -274,7 +276,6 @@ void trainAndTest(std::vector<Layer*>& layers, unsigned int trainTimes, unsigned
 
     calculateError(outputData, expectedOutput, outputData, OutputWidth);
     cout << "error   \t" << absError(outputData, OutputWidth) << endl;
-
 
     for (auto it = layers.rbegin(); it < layers.rend(); ++it) {
       auto layer = *it;
@@ -315,7 +316,7 @@ void trainAndTest(std::vector<Layer*>& layers, unsigned int trainTimes, unsigned
   }
 
   // NOTE: layer 0 is not a FullyConnectedLayer
-  for (int i = 1; i < layers.size() - 1; ++i) {
+  for (int i = 1; i < layers.size(); ++i) {
     cout << "layer" << i << " weights: " << endl;
     static_cast<FullyConnectedLayer*>(layers[i])->printWeights();
   }
@@ -345,7 +346,7 @@ int main(int argc, const char *argv[]) {
       /** --help option
        */
       if (vm.count("help")) {
-        std::cout << "Basic Command Line Parameter App" << std::endl
+        std::cout << "bp-ann" << std::endl
         << desc << std::endl;
         return 0;
       }
@@ -353,8 +354,7 @@ int main(int argc, const char *argv[]) {
       boost::program_options::notify(vm); // throws on error, so do after help in case
       // there are any problems
     }
-    catch(boost::program_options::error& e)
-    {
+    catch(boost::program_options::error& e) {
       std::cerr << "ERROR: " << e.what() << std::endl << std::endl;
       std::cerr << desc << std::endl;
       return 1;
