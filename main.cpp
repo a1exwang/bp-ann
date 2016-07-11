@@ -1,8 +1,10 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <exception>
+#include <stdexcept>
 #include <random>
+#include <unistd.h>
+#include <functional>
 
 using namespace std;
 
@@ -52,17 +54,40 @@ protected:
   double *lastOutput;
 };
 
+
 class InputLayer :public Layer {
 public:
-  InputLayer(int InputWidth) :Layer(InputWidth, nullptr, InputWidth) { }
+  explicit InputLayer(int InputWidth) :Layer(InputWidth, nullptr, InputWidth) { }
+  InputLayer(int InputWidth, int OutputWidth) :Layer(OutputWidth, nullptr, InputWidth) { }
 
-  virtual void forwardPropagation(const double *input, double *output) const override { 
+  virtual void forwardPropagation(const double *input, double *output) const override {
     for (int i = 0; i < InputWidth; ++i) {
       output[i] = input[i];
     }
   }
-  virtual void backwardPropagation(double *input, const double *output) override {
+  virtual void backwardPropagation(double *input, const double *output) override { }
+};
+
+class MappingInputLayer :public InputLayer {
+public:
+  MappingInputLayer(int InputWidth, vector<function<double(const double*, int)>> mappings)
+      :InputLayer(InputWidth, InputWidth + (int)mappings.size()), mappings(mappings) {
   }
+
+  virtual void forwardPropagation(const double *input, double *output) const override {
+    for (int i = 0; i < InputWidth; ++i) {
+      output[i] = input[i];
+    }
+    int i = InputWidth;
+    for (auto mapping : mappings) {
+      output[i] = mapping(input, InputWidth);
+      i++;
+    }
+    Layer::forwardPropagation(input, output);
+  }
+
+private:
+  vector<function<double(const double *, int)>> mappings;
 };
 
 class FullyConnectedLayer :public Layer {
@@ -166,67 +191,8 @@ double absError(const double *err, int width) {
   return sum;
 }
 
-const int OutputWidth = 2;
 const int InputWidth = 2;
-/* const int InputSampleCount = 10;
-//const double SampleData [InputSampleCount][InputWidth] = {
-//  { 0.1, 0.2 },
-//  { 0, 0 },
-//  { -0.1, -0.2},
-//  { 0.1, -0.2 },
-//  { -0.8, 0.5 },
-//
-//  { 20, 30 },
-//  { -10, 20 },
-//  { -20, 10 },
-//  { -5, -12 },
-//  { -20, -10 }
-//};
-
-const double SampleData [InputSampleCount][InputWidth] = {
-  { -1, 1 },
-  { -2, 2 },
-  { -3, 3 },
-  { -4, 4 },
-  { -5, 5 },
-
-  { 5, 2.3 },
-  { 4, 4 },
-  { 3, 2 },
-  { 2, 0 },
-  { 1, 1 }
-};
-const double ExpectedOutput[InputSampleCount][OutputWidth] = {
-  { 1.0, -1.0 },
-  { 1.0, -1.0 },
-  { 1.0, -1.0 },
-  { 1.0, -1.0 },
-  { 1.0, -1.0 },
-  { -1.0, 1.0 },
-  { -1.0, 1.0 },
-  { -1.0, 1.0 },
-  { -1.0, 1.0 },
-  { -1.0, 1.0 },
-};
-
-const double TestData[InputSampleCount][InputWidth] = {
-  { -5, 7 },
-  { -5, 22 },
-  { -6, 3 },
-  { -4, 4 },
-  { -2, 1 },
-
-  { 2, 2.3 },
-  { 3, 4 },
-  { 6, 2 },
-  { 9, 0 },
-  { 5, 1 }
-};
-const int TestResult[InputSampleCount]= {
-        0, 0, 0, 0, 0,
-        1, 1, 1, 1, 1
-};
-*/
+const int OutputWidth = 3;
 
 double InputXWidth = 3.0;
 double InputYWidth = 1.0;
@@ -242,42 +208,43 @@ static int setIndex(int index, double *output, int outputCount) {
   return index;
 }
 
+int realFunction(double *input, int inputCount, double *output, int outputCount) {
+  double x = input[0], y = input[1];
+  if ((x+2)*(x+2) + y*y < 1) {
+    return setIndex(0, output, outputCount);
+  }
+  else if ((x-2)*(x-2) + y*y < 1) {
+    return setIndex(1, output, outputCount);
+  }
+  else {
+    return setIndex(2, output, outputCount);
+  }
+}
 //int realFunction(double *input, int inputCount, double *output, int outputCount) {
 //  if (inputCount != 2) {
 //    throw std::invalid_argument("realFunction input not 2 dimension!");
 //  }
 //  double x = input[0], y = input[1];
-//  if ((x+2)*(x+2) + y*y < 1) {
+//  if (2 * x + y < 0) {
 //    return setIndex(0, output, outputCount);
 //  }
-//  else if ((x-2)*(x-2) + y*y < 1) {
+//  else {
 //    return setIndex(1, output, outputCount);
 //  }
-//  else {
-//    return setIndex(2, output, outputCount);
-//  }
 //}
-int realFunction(double *input, int inputCount, double *output, int outputCount) {
-  if (inputCount != 2) {
-    throw std::invalid_argument("realFunction input not 2 dimension!");
-  }
-  double x = input[0], y = input[1];
-  if (x < 0) {
-    return setIndex(0, output, outputCount);
-  }
-  else {
-    return setIndex(1, output, outputCount);
-  }
-}
 
 std::vector<Layer*> initializeNetwork() {
-  InputLayer inputLayer(InputWidth);
-  FullyConnectedLayer layer1(3, &inputLayer);
-  FullyConnectedLayer layer2(5, &layer1);
-  OutputLayer outputLayer(OutputWidth, &layer2);
+
+  MappingInputLayer *inputLayer = new MappingInputLayer(InputWidth, {
+      [](const double *input, int w) -> double { return input[0] * input[0]; },
+      [](const double *input, int w) -> double { return input[1] * input[1]; }
+  });
+  FullyConnectedLayer *layer1 = new FullyConnectedLayer(3, inputLayer);
+  FullyConnectedLayer *layer2 = new FullyConnectedLayer(5, layer1);
+  OutputLayer *outputLayer = new OutputLayer(OutputWidth, layer2);
 
   vector<Layer*> layers;
-  Layer *last = &inputLayer;
+  Layer *last = inputLayer;
   layers.push_back(last);
   while (true) {
     Layer *current = last->getNextLayer();
@@ -290,17 +257,16 @@ std::vector<Layer*> initializeNetwork() {
   return layers;
 }
 
-void trainAndTest(std::vector<Layer*> layers) {
-  const int LayerCount = (int) layers.size();
-  for (int j = 0; j < 10000; ++j) {
+void trainAndTest(std::vector<Layer*>& layers, unsigned int trainTimes, unsigned int testTimes) {
+  for (int j = 0; j < trainTimes; ++j) {
     double expectedOutput[OutputWidth], *inputData = new double[InputWidth], *outputData = nullptr;
     inputData[0] = rand1() * InputXWidth;
     inputData[1] = rand1() * InputYWidth;
     realFunction(inputData, InputWidth, expectedOutput, OutputWidth);
 
-    for (int k = 0; k < LayerCount; ++k) {
-      outputData = new double[layers[k]->OutputWidth];
-      layers[k]->forwardPropagation(inputData, outputData);
+    for (auto layer : layers) {
+      outputData = new double[layer->OutputWidth];
+      layer->forwardPropagation(inputData, outputData);
 
       delete [] inputData;
       inputData = outputData;
@@ -310,9 +276,10 @@ void trainAndTest(std::vector<Layer*> layers) {
     cout << "error   \t" << absError(outputData, OutputWidth) << endl;
 
 
-    for (int i = LayerCount - 1; i >= 0; --i) {
-      inputData = new double[layers[i]->OutputWidth];
-      layers[i]->backwardPropagation(inputData, outputData);
+    for (auto it = layers.rbegin(); it < layers.rend(); ++it) {
+      auto layer = *it;
+      inputData = new double[layer->OutputWidth];
+      layer->backwardPropagation(inputData, outputData);
 
       delete [] outputData;
       outputData = inputData;
@@ -320,16 +287,15 @@ void trainAndTest(std::vector<Layer*> layers) {
   }
 
   int successCount = 0;
-  int testCount = 1000;
-  for (int i = 0; i < testCount; ++i) {
+  for (int i = 0; i < testTimes; ++i) {
     double expectedOutput[OutputWidth], *inputData = new double[InputWidth], *outputData = nullptr;
     inputData[0] = rand1() * InputXWidth;
     inputData[1] = rand1() * InputYWidth;
     int expectedIndex = realFunction(inputData, InputWidth, expectedOutput, OutputWidth);
 
-    for (int j = 0; j < LayerCount; ++j) {
-      outputData = new double[layers[j]->OutputWidth];
-      layers[j]->forwardPropagation(inputData, outputData);
+    for (auto layer : layers) {
+      outputData = new double[layer->OutputWidth];
+      layer->forwardPropagation(inputData, outputData);
 
       delete [] inputData;
       inputData = outputData;
@@ -349,20 +315,63 @@ void trainAndTest(std::vector<Layer*> layers) {
   }
 
   // NOTE: layer 0 is not a FullyConnectedLayer
-  for (int i = 1; i < LayerCount; ++i) {
+  for (int i = 1; i < layers.size() - 1; ++i) {
     cout << "layer" << i << " weights: " << endl;
     static_cast<FullyConnectedLayer*>(layers[i])->printWeights();
   }
 
-  cout << "success rate = " << 100.0 * successCount / testCount << "%" << endl;
-
+  cout << "success rate = " << 100.0 * successCount / testTimes << "%" << endl;
 }
 
-int main() {
+#include <boost/program_options.hpp>
+int main(int argc, const char *argv[]) {
   srand(1);
 
-  auto layers = initializeNetwork();
-  trainAndTest(layers);
+  unsigned testTimes = 10000,
+          trainTimes = 10000;
 
+  try {
+    boost::program_options::options_description desc("Options");
+    desc.add_options()
+            ("help", boost::program_options::value<string>(), "Print help messages")
+            ("train-times", boost::program_options::value<unsigned int>(), "train times")
+            ("test-times", boost::program_options::value<unsigned int>(), "test times");
+
+    boost::program_options::variables_map vm;
+    try {
+      boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc),
+                vm); // can throw
+
+      /** --help option
+       */
+      if (vm.count("help")) {
+        std::cout << "Basic Command Line Parameter App" << std::endl
+        << desc << std::endl;
+        return 0;
+      }
+
+      boost::program_options::notify(vm); // throws on error, so do after help in case
+      // there are any problems
+    }
+    catch(boost::program_options::error& e)
+    {
+      std::cerr << "ERROR: " << e.what() << std::endl << std::endl;
+      std::cerr << desc << std::endl;
+      return 1;
+    }
+
+    if (vm.count("train-times"))
+      trainTimes = vm["train-times"].as<unsigned>();
+    if (vm.count("test-times"))
+      testTimes = vm["test-times"].as<unsigned>();
+
+    auto layers = initializeNetwork();
+    trainAndTest(layers, trainTimes, testTimes);
+  }
+  catch(std::exception& e) {
+    std::cerr << "Unhandled Exception reached the top of main: "
+      << e.what() << ", application will now exit" << std::endl;
+    return 2;
+  }
   return 0;
 }
